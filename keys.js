@@ -1,5 +1,5 @@
 var keys = JSON. parse(process.env.GOOGLE_APPLICATION_CREDENTIALS);
 
-sexports.get = function () {
+exports.get = function () {
 	return keys;
   };
