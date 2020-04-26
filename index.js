@@ -5,6 +5,8 @@ var moment      = require('moment'),
     FormData    = require('form-data'),
     fs			= require('memfs'),
     PromiseFtp  = require('promise-ftp');
+const {Storage} = require('@google-cloud/storage');
+var keys        = require("./keys");
 
     
 const OpenAipAirspaceUrl = "https://www.planeur.net/_download/airspaces/france.txt";
@@ -13,6 +15,7 @@ const AirspaceDirectory_Heatmap = "/heatmap/airspacedata";
 const AirspaceDirectory_Tracemap = "/tracemap/airspacedata";
 const NetcoupeAirspaceFileName = "netcoupe-france.geojson";
 const NetcoupeAirspaceMetadataFileName = "netcoupe-france-metadata.json";
+const GCloudHeatmapBucketName = "heatmap-data";
 
 var FtpServerNameHeatmap = process.env.FTP_SERVER_NAME_HEATMAP;
 var FtpLoginHeatmap = process.env.FTP_LOGIN_HEATMAP;
@@ -38,12 +41,12 @@ if (process.env.DEBUG) {
 
 async function main(){
     console.log(">>> OpenAir to GeoJSON converter");
-    
-
     var openAirAirspace = await getOpenAirAirsapceFile();
     buildMetadata(openAirAirspace);
     var geojsonOpenAirSpace = await submitToOgr2ogr(openAirAirspace);
-    await dumpToFtp(geojsonOpenAirSpace);
+
+    await dumpToFtp(geojsonOpenAirSpace);               // Dump to FTP
+    await dumpToGCloudStorage(geojsonOpenAirSpace);     // Dump to GCloud Storage
 
     return JSON.stringify(_metadata);
 }
@@ -132,5 +135,34 @@ async function dumpToFtp(data){
         });
 }
 
+async function dumpToGCloudStorage(data) {
+    var jsonGeoData = JSON.stringify(data);
+    var jsonMetadata = JSON.stringify(_metadata);
+
+    // Creates a client
+    const credentials = keys.get();
+    const storage = new Storage({
+        project_id: credentials.project_id,
+        credentials
+      });
+    const bucketName = GCloudHeatmapBucketName;
+
+    // Save Airsapce
+    var file = storage.bucket(bucketName).file(NetcoupeAirspaceFileName);
+    var res = await file.save(jsonGeoData)
+    .then(function() {
+        console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceFileName}`)
+    });
+
+    // Save Airsapce
+    file = storage.bucket(bucketName).file(NetcoupeAirspaceMetadataFileName);
+    res = await file.save(jsonMetadata)
+    .then(function() {
+        console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceMetadataFileName}`)
+    });
+
+
+    return res;
+}
 
 
