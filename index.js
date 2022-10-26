@@ -3,19 +3,19 @@ var moment      = require('moment'),
     colors		= require('colors/safe'),
     axios       = require('axios'),
     FormData    = require('form-data'),
-    fs			= require('memfs'),
+    fs			= require('fs'),
     PromiseFtp  = require('promise-ftp');
 const {Storage} = require('@google-cloud/storage');
-var keys        = require("./keys");
+const Parser = require('@openaip/openair-parser');
+// var keys        = require("./keys");
 
     
 const OpenAipAirspaceUrl = "https://www.planeur.net/_download/airspaces/france.txt";
-const OgreWebClientUrl = "http://ogre.adc4gis.com/convert";     // See also: https://ogre.adc4gis.com/
 const AirspaceDirectory_Heatmap = "/heatmap/airspacedata";
 const AirspaceDirectory_Tracemap = "/tracemap/airspacedata";
 const NetcoupeAirspaceFileName = "netcoupe-france.geojson";
 const NetcoupeAirspaceMetadataFileName = "netcoupe-france-metadata.json";
-const GCloudHeatmapBucketName = "heatmap-data";
+const dataDirectory = "./data";
 
 var FtpServerNameHeatmap = process.env.FTP_SERVER_NAME_HEATMAP;
 var FtpLoginHeatmap = process.env.FTP_LOGIN_HEATMAP;
@@ -43,10 +43,10 @@ async function main(){
     console.log(">>> OpenAir to GeoJSON converter");
     var openAirAirspace = await getOpenAirAirsapceFile();
     buildMetadata(openAirAirspace);
-    var geojsonOpenAirSpace = await submitToOgr2ogr(openAirAirspace);
+    var geojsonOpenAirSpace = await parseOpenAirFile(openAirAirspace);
 
     await dumpToFtp(geojsonOpenAirSpace);               // Dump to FTP
-    await dumpToGCloudStorage(geojsonOpenAirSpace);     // Dump to GCloud Storage
+    // await dumpToGCloudStorage(geojsonOpenAirSpace);     // Dump to GCloud Storage
 
     return JSON.stringify(_metadata);
 }
@@ -81,28 +81,17 @@ function buildMetadata(openAirAirspace) {
     _metadata.source = `${OpenAipAirspaceUrl}  --> ${source}`;
 }
 
-async function submitToOgr2ogr(airspaceText) {
-    console.log(colors.yellow(`POST to ogr2ogr webclient: ${OgreWebClientUrl}`));
-    fs.writeFileSync('/france.txt', airspaceText);      // Save to dummy in memory file
+async function parseOpenAirFile(airspaceText) {
+    console.log(colors.yellow("Parsing file ..."));
+    if (!fs.existsSync(dataDirectory)){
+        fs.mkdirSync(dataDirectory);
+    }
+    fs.writeFileSync(`${dataDirectory}/france.txt`, airspaceText);      // Save to dummy in memory file
 
-    var form = new FormData();
-    form.append('skipFailures', 'true');
-    form.append('upload', fs.createReadStream('/france.txt'));
-
-    const reqOptions = {
-        method: 'post',
-        url: OgreWebClientUrl,
-        data: form,
-        headers: form.getHeaders()
-        };
-
-    return axios(reqOptions)
-        .then(function (response) {
-            return response.data;
-        })
-        .catch(err => {
-            return console.log(err);
-        });
+    const parser = new Parser();
+    await parser.parse('./data/france.txt');
+    const geojson = parser.toGeojson();
+    return geojson;
 }
 
 async function dumpToFtp(data){
@@ -135,34 +124,34 @@ async function dumpToFtp(data){
         });
 }
 
-async function dumpToGCloudStorage(data) {
-    var jsonGeoData = JSON.stringify(data);
-    var jsonMetadata = JSON.stringify(_metadata);
-
-    // Creates a client
-    const credentials = keys.get();
-    const storage = new Storage({
-        project_id: credentials.project_id,
-        credentials
-      });
-    const bucketName = GCloudHeatmapBucketName;
-
-    // Save Airsapce
-    var file = storage.bucket(bucketName).file(NetcoupeAirspaceFileName);
-    var res = await file.save(jsonGeoData)
-    .then(function() {
-        console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceFileName}`)
-    });
-
-    // Save Airsapce
-    file = storage.bucket(bucketName).file(NetcoupeAirspaceMetadataFileName);
-    res = await file.save(jsonMetadata)
-    .then(function() {
-        console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceMetadataFileName}`)
-    });
-
-
-    return res;
-}
+// async function dumpToGCloudStorage(data) {
+//     var jsonGeoData = JSON.stringify(data);
+//     var jsonMetadata = JSON.stringify(_metadata);
+//
+//     // Creates a client
+//     const credentials = keys.get();
+//     const storage = new Storage({
+//         project_id: credentials.project_id,
+//         credentials
+//       });
+//     const bucketName = GCloudHeatmapBucketName;
+//
+//     // Save Airsapce
+//     var file = storage.bucket(bucketName).file(NetcoupeAirspaceFileName);
+//     var res = await file.save(jsonGeoData)
+//     .then(function() {
+//         console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceFileName}`)
+//     });
+//
+//     // Save Airsapce
+//     file = storage.bucket(bucketName).file(NetcoupeAirspaceMetadataFileName);
+//     res = await file.save(jsonMetadata)
+//     .then(function() {
+//         console.log(`File saved to GCloud Bucket: ${bucketName} <-- ${NetcoupeAirspaceMetadataFileName}`)
+//     });
+//
+//
+//     return res;
+// }
 
 
